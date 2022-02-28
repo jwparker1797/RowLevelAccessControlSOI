@@ -37,7 +37,7 @@ namespace RowLevelAccessControlSOI
         DisplayName = "Row Level Access Control SOI",
         Properties = "GroupNameAttributeField=;GroupNameForAllData=",
         SupportsSharedInstances = true)]
-    public class RowLevelAccessControlSOI : IServerObjectExtension, IRESTRequestHandler, IWebRequestHandler, IRequestHandler2, IRequestHandler
+    public class RowLevelAccessControlSOI : IServerObjectExtension, IRESTRequestHandler, IWebRequestHandler, IRequestHandler2, IRequestHandler, IObjectConstruct
     {
         private string _soiName;
         private IServerObjectHelper _soHelper;
@@ -66,6 +66,8 @@ namespace RowLevelAccessControlSOI
 
         public void Construct(IPropertySet props)
         {
+            _serverLog.LogMessage(ServerLogger.msgType.infoStandard, _soiName + ".Construct()", 200, "GroupNameAttributeField: " + props.GetProperty("GroupNameAttributeField").ToString());
+            _serverLog.LogMessage(ServerLogger.msgType.infoStandard, _soiName + ".Construct()", 200, "GroupNameForAllData: " + props.GetProperty("GroupNameForAllData").ToString());
             groupNameFieldAttr = props.GetProperty("GroupNameAttributeField").ToString();
             groupNameForAllData = props.GetProperty("GroupNameForAllData").ToString();
         }
@@ -105,6 +107,22 @@ namespace RowLevelAccessControlSOI
                 return "1=0";
             }
         }
+        private bool isValidSQLClause(IRESTRequestHandler restRequestHandler, string Capabilities, string resourceName, string groupWhereClause)
+        {
+            byte[] validateSQLResponse = restRequestHandler.HandleRESTRequest(Capabilities, resourceName, "validateSQL", "{\"sqlType\":\"where\",\"sql\":\"" + groupWhereClause + "\"}", "json", "{\"computeETag\":true,\"ETag\":\"57bf5a93\"}", out string sqlResponseProperties);
+            string validateSQLResult = Encoding.UTF8.GetString(validateSQLResponse);
+            JavaScriptSerializer sr = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
+            var resultJSON = sr.DeserializeObject(validateSQLResult) as IDictionary<string, object>;
+            if (resultJSON.Keys.Contains("isValidSQL"))
+                return (bool)resultJSON["isValidSQL"];
+            else
+                return true;
+        }
+        private string[] GetShownLayerResourceNamesFromMapServiceRequest(string layers)
+        {
+            string[] resourceNames = layers.Split(':')[1].Split(',');
+            return resourceNames;
+        }
         #endregion
 
         #region REST interceptors
@@ -126,16 +144,13 @@ namespace RowLevelAccessControlSOI
             try
             {
                 IRESTRequestHandler restRequestHandler = _restSOIHelper.FindRequestHandlerDelegate<IRESTRequestHandler>();
-                if (resourceName.Length > 0)
+                if (operationName == "query")
                 {
                     string groupWhereClause = CreateGroupWhereClause();
                     _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".HandleRESTRequest()", 200, "Group Where Clause: " + groupWhereClause);
-                    byte[] validateSQLResponse = restRequestHandler.HandleRESTRequest(Capabilities, resourceName, "validateSQL", "{\"sqlType\":\"where\",\"sql\":\"" + groupWhereClause + "\"}", "json", "{\"computeETag\":true,\"ETag\":\"57bf5a93\"}", out string sqlResponseProperties);
-                    string validateSQLResult = Encoding.UTF8.GetString(validateSQLResponse);
-                    JavaScriptSerializer sr = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
-                    var resultJSON = sr.DeserializeObject(validateSQLResult) as IDictionary<string, object>;
-                    _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".HandleRESTRequest()", 200, "Is valid SQL?: " + resultJSON["isValidSQL"]);
-                    if ((bool)resultJSON["isValidSQL"] == true)
+                    bool isValidSQL = isValidSQLClause(restRequestHandler, Capabilities, resourceName, groupWhereClause);
+                    _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".HandleRESTRequest()", 200, "Is valid SQL?: " + isValidSQL.ToString());
+                    if (isValidSQL)
                     {
                         JsonObject joOperationInput = new JsonObject(operationInput);
                         bool currentWhereFound = joOperationInput.TryGetString("where", out string currentWhere);
@@ -149,6 +164,42 @@ namespace RowLevelAccessControlSOI
                         joOperationInput.AddString("where", whereClause);
                         operationInput = joOperationInput.ToJson();
                     }
+                }else if (operationName == "export")
+                {
+                    string groupWhereClause = CreateGroupWhereClause();
+                    _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".HandleRESTRequest()", 200, "Group Where Clause: " + groupWhereClause);
+
+                    JsonObject joOperationInput = new JsonObject(operationInput);
+                    bool layersAttrFound = joOperationInput.TryGetString("layers", out string layers);
+                    if (layersAttrFound)
+                    {
+                        string[] showLayers = GetShownLayerResourceNamesFromMapServiceRequest(layers);
+                        _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".HandleRESTRequest()", 200, "Map Export - Shown Layers: " + String.Join(",", showLayers));
+
+                        bool layerDefsAttrFound = joOperationInput.TryGetJsonObject("layerDefs", out JsonObject joLayerDefs);
+                        if (!layerDefsAttrFound)
+                            joLayerDefs = new JsonObject();
+                        foreach (string layer in showLayers)
+                        {
+                            string finalLayerDef = groupWhereClause;
+                            bool layerFound = joOperationInput.TryGetString(layer, out string existingLayerDef);
+                            if (layerFound)
+                            {
+                                finalLayerDef += " AND " + existingLayerDef;
+                            }
+                            joLayerDefs.Delete(layer);
+                            joLayerDefs.AddString(layer, finalLayerDef);
+                        }
+                        _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".HandleRESTRequest()", 200, "New Layer Def's: " + joLayerDefs.ToString());
+                        joOperationInput.Delete("layerDefs");
+                        joOperationInput.AddJsonObject("layerDefs", joLayerDefs);
+                        operationInput = joOperationInput.ToJson();
+                    }
+
+
+                }else if (operationName == "find")
+                {
+                    return Encoding.UTF8.GetBytes("{\"error\":{\"code\":404,\"message\":\"Unable to complete operation.\",\"details\":This method is not allowed.\"]}}");
                 }
                 _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".HandleRESTRequest()", 200, "Sending Request");
                 return restRequestHandler.HandleRESTRequest(
