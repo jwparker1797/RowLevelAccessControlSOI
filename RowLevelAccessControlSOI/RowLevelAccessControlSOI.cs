@@ -35,7 +35,7 @@ namespace RowLevelAccessControlSOI
     [ServerObjectInterceptor("MapServer",
          Description = "Filters records based upon groups of which a user is a member. Currently only implemented on REST services.",
         DisplayName = "Row Level Access Control SOI",
-        Properties = "GroupNameAttributeField=;GroupNameForAllData=",
+        Properties = "GroupNameAttributeField=;GroupNamesForAllData=",
         SupportsSharedInstances = true)]
     public class RowLevelAccessControlSOI : IServerObjectExtension, IRESTRequestHandler, IWebRequestHandler, IRequestHandler2, IRequestHandler, IObjectConstruct
     {
@@ -44,7 +44,7 @@ namespace RowLevelAccessControlSOI
         private ServerLogger _serverLog;
         private RestSOIHelper _restSOIHelper;
         private static string groupNameFieldAttr;
-        private static string groupNameForAllData;
+        private static string[] groupNamesForAllData;
 
         public RowLevelAccessControlSOI()
         {
@@ -67,9 +67,11 @@ namespace RowLevelAccessControlSOI
         public void Construct(IPropertySet props)
         {
             _serverLog.LogMessage(ServerLogger.msgType.infoStandard, _soiName + ".Construct()", 200, "GroupNameAttributeField: " + props.GetProperty("GroupNameAttributeField").ToString());
-            _serverLog.LogMessage(ServerLogger.msgType.infoStandard, _soiName + ".Construct()", 200, "GroupNameForAllData: " + props.GetProperty("GroupNameForAllData").ToString());
+            _serverLog.LogMessage(ServerLogger.msgType.infoStandard, _soiName + ".Construct()", 200, "GroupNamesForAllData: " + props.GetProperty("GroupNamesForAllData").ToString());
             groupNameFieldAttr = props.GetProperty("GroupNameAttributeField").ToString();
-            groupNameForAllData = props.GetProperty("GroupNameForAllData").ToString();
+            string groupNamesForAllData_str = props.GetProperty("GroupNamesForAllData").ToString();
+            groupNamesForAllData = groupNamesForAllData_str.Split(';');
+            _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".Construct()", 200, "Group Names For All Data: " + String.Join(", ", groupNamesForAllData));
         }
 
         #region Access Filters
@@ -82,7 +84,7 @@ namespace RowLevelAccessControlSOI
                 return "1=0";
             }
             _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".CreateGroupWhereClause()", 200, "User groups: " + String.Join(", ", userRoleSet));
-            if (userRoleSet.Contains(groupNameForAllData))
+            if (userRoleSet.Intersect(groupNamesForAllData).Count() > 0)
             {
                 _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".CreateGroupWhereClause()", 200, "User a member of all inclusive group.");
                 return "1=1";
@@ -164,7 +166,8 @@ namespace RowLevelAccessControlSOI
                         joOperationInput.AddString("where", whereClause);
                         operationInput = joOperationInput.ToJson();
                     }
-                }else if (operationName == "export")
+                }
+                else if (operationName == "export")
                 {
                     string groupWhereClause = CreateGroupWhereClause();
                     _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".HandleRESTRequest()", 200, "Group Where Clause: " + groupWhereClause);
@@ -197,7 +200,8 @@ namespace RowLevelAccessControlSOI
                     }
 
 
-                }else if (operationName == "find")
+                }
+                else if (operationName == "find")
                 {
                     return Encoding.UTF8.GetBytes("{\"error\":{\"code\":404,\"message\":\"Unable to complete operation.\",\"details\":This method is not allowed.\"]}}");
                 }
