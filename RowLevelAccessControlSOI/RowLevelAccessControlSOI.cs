@@ -35,7 +35,7 @@ namespace RowLevelAccessControlSOI
     [ServerObjectInterceptor("MapServer",
          Description = "Filters records based upon groups of which a user is a member. Currently only implemented on REST services.",
         DisplayName = "Row Level Access Control SOI",
-        Properties = "GroupNameAttributeField=;GroupNamesForAllData=",
+        Properties = "GroupNameAttributeField=;GroupNamePrefix=;GroupNamesForAllData=",
         SupportsSharedInstances = true)]
     public class RowLevelAccessControlSOI : IServerObjectExtension, IRESTRequestHandler, IWebRequestHandler, IRequestHandler2, IRequestHandler, IObjectConstruct
     {
@@ -43,8 +43,9 @@ namespace RowLevelAccessControlSOI
         private IServerObjectHelper _soHelper;
         private ServerLogger _serverLog;
         private RestSOIHelper _restSOIHelper;
-        private static string groupNameFieldAttr;
-        private static string[] groupNamesForAllData;
+        private string groupNameFieldAttr;
+        private string groupNamePrefix;
+        private string[] groupNamesForAllData;
 
         public RowLevelAccessControlSOI()
         {
@@ -67,8 +68,10 @@ namespace RowLevelAccessControlSOI
         public void Construct(IPropertySet props)
         {
             _serverLog.LogMessage(ServerLogger.msgType.infoStandard, _soiName + ".Construct()", 200, "GroupNameAttributeField: " + props.GetProperty("GroupNameAttributeField").ToString());
+            _serverLog.LogMessage(ServerLogger.msgType.infoStandard, _soiName + ".Construct()", 200, "GroupNamePrefix: " + props.GetProperty("GroupNamePrefix").ToString());
             _serverLog.LogMessage(ServerLogger.msgType.infoStandard, _soiName + ".Construct()", 200, "GroupNamesForAllData: " + props.GetProperty("GroupNamesForAllData").ToString());
             groupNameFieldAttr = props.GetProperty("GroupNameAttributeField").ToString();
+            groupNamePrefix = props.GetProperty("GroupNamePrefix").ToString();
             string groupNamesForAllData_str = props.GetProperty("GroupNamesForAllData").ToString();
             groupNamesForAllData = groupNamesForAllData_str.Split(';');
             _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".Construct()", 200, "Group Names For All Data: " + String.Join(", ", groupNamesForAllData));
@@ -93,12 +96,13 @@ namespace RowLevelAccessControlSOI
             {
                 _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".CreateGroupWhereClause()", 200, "User is a member of a (any) group.");
                 string outWhere = "";
+                string groupNameWithPrefix = groupNamePrefix + groupNameFieldAttr;
                 foreach (var group in userRoleSet)
                 {
                     if (group == userRoleSet.First())
-                        outWhere += "(" + groupNameFieldAttr + "='" + group + "'";
+                        outWhere += "(" + groupNameWithPrefix + "='" + group + "'";
                     else
-                        outWhere += " OR " + groupNameFieldAttr + "='" + group + "'";
+                        outWhere += " OR " + groupNameWithPrefix + "='" + group + "'";
                 }
                 outWhere += ")";
                 return outWhere;
