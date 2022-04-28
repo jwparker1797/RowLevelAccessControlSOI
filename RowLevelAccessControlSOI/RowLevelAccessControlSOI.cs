@@ -96,13 +96,16 @@ namespace RowLevelAccessControlSOI
             {
                 _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".CreateGroupWhereClause()", 200, "User is a member of a (any) group.");
                 string outWhere = "";
-                string groupNameWithPrefix = groupNamePrefix + groupNameFieldAttr;
                 foreach (var group in userRoleSet)
                 {
+                    string groupName = group;
+                    if (groupNamePrefix != "" && groupNamePrefix == group.Substring(0, groupNamePrefix.Length)) {
+                        groupName = group.Substring(groupNamePrefix.Length);
+                    }
                     if (group == userRoleSet.First())
-                        outWhere += "(" + groupNameWithPrefix + "='" + group + "'";
+                        outWhere += "(" + groupNameFieldAttr + "='" + groupName + "'";
                     else
-                        outWhere += " OR " + groupNameWithPrefix + "='" + group + "'";
+                        outWhere += " OR " + groupNameFieldAttr + "='" + groupName + "'";
                 }
                 outWhere += ")";
                 return outWhere;
