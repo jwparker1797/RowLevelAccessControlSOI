@@ -67,9 +67,9 @@ namespace RowLevelAccessControlSOI
 
         public void Construct(IPropertySet props)
         {
-            _serverLog.LogMessage(ServerLogger.msgType.infoStandard, _soiName + ".Construct()", 200, "GroupNameAttributeField: " + props.GetProperty("GroupNameAttributeField").ToString());
-            _serverLog.LogMessage(ServerLogger.msgType.infoStandard, _soiName + ".Construct()", 200, "GroupNamePrefix: " + props.GetProperty("GroupNamePrefix").ToString());
-            _serverLog.LogMessage(ServerLogger.msgType.infoStandard, _soiName + ".Construct()", 200, "GroupNamesForAllData: " + props.GetProperty("GroupNamesForAllData").ToString());
+            _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".Construct()", 200, "GroupNameAttributeField: " + props.GetProperty("GroupNameAttributeField").ToString());
+            _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".Construct()", 200, "GroupNamePrefix: " + props.GetProperty("GroupNamePrefix").ToString());
+            _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".Construct()", 200, "GroupNamesForAllData: " + props.GetProperty("GroupNamesForAllData").ToString());
             groupNameFieldAttr = props.GetProperty("GroupNameAttributeField").ToString();
             groupNamePrefix = props.GetProperty("GroupNamePrefix").ToString();
             string groupNamesForAllData_str = props.GetProperty("GroupNamesForAllData").ToString();
