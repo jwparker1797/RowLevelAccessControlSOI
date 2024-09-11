@@ -18,10 +18,15 @@ using ESRI.ArcGIS.Server;
 using ESRI.Server.SOESupport;
 using ESRI.Server.SOESupport.SOI;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.IO;
 using System.Linq;
+using System.Net.Security;
+using System.Net;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Web.Script.Serialization;
 
@@ -35,7 +40,7 @@ namespace RowLevelAccessControlSOI
     [ServerObjectInterceptor("MapServer",
          Description = "Filters records based upon groups of which a user is a member. Currently only implemented on REST services.",
         DisplayName = "Row Level Access Control SOI",
-        Properties = "GroupNameAttributeField=;GroupNamePrefix=;GroupNamesForAllData=",
+        Properties = "GroupIdAttributeField=;GroupIdsForAllData=",
         SupportsSharedInstances = true)]
     public class RowLevelAccessControlSOI : IServerObjectExtension, IRESTRequestHandler, IWebRequestHandler, IRequestHandler2, IRequestHandler, IObjectConstruct
     {
@@ -43,9 +48,9 @@ namespace RowLevelAccessControlSOI
         private IServerObjectHelper _soHelper;
         private ServerLogger _serverLog;
         private RestSOIHelper _restSOIHelper;
-        private string groupNameFieldAttr;
-        private string groupNamePrefix;
-        private string[] groupNamesForAllData;
+        private string groupIdFieldAttr;
+        //private string groupNamePrefix;
+        private string[] groupIdsForAllData;
 
         public RowLevelAccessControlSOI()
         {
@@ -67,27 +72,27 @@ namespace RowLevelAccessControlSOI
 
         public void Construct(IPropertySet props)
         {
-            _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".Construct()", 200, "GroupNameAttributeField: " + props.GetProperty("GroupNameAttributeField").ToString());
-            _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".Construct()", 200, "GroupNamePrefix: " + props.GetProperty("GroupNamePrefix").ToString());
-            _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".Construct()", 200, "GroupNamesForAllData: " + props.GetProperty("GroupNamesForAllData").ToString());
-            groupNameFieldAttr = props.GetProperty("GroupNameAttributeField").ToString();
-            groupNamePrefix = props.GetProperty("GroupNamePrefix").ToString();
-            string groupNamesForAllData_str = props.GetProperty("GroupNamesForAllData").ToString();
-            groupNamesForAllData = groupNamesForAllData_str.Split(';');
-            _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".Construct()", 200, "Group Names For All Data: " + String.Join(", ", groupNamesForAllData));
+            _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".Construct()", 200, "GroupIdAttributeField: " + props.GetProperty("GroupIdAttributeField").ToString());
+            //_serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".Construct()", 200, "GroupNamePrefix: " + props.GetProperty("GroupNamePrefix").ToString());
+            _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".Construct()", 200, "GroupIdsForAllData: " + props.GetProperty("GroupIdsForAllData").ToString());
+            groupIdFieldAttr = props.GetProperty("GroupIdAttributeField").ToString();
+            //groupNamePrefix = props.GetProperty("GroupNamePrefix").ToString();
+            string groupNamesForAllData_str = props.GetProperty("GroupIdsForAllData").ToString();
+            groupIdsForAllData = groupNamesForAllData_str.Split(';');
+            _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".Construct()", 200, "Group Ids For All Data: " + String.Join(", ", groupIdsForAllData));
         }
 
         #region Access Filters
         private string CreateGroupWhereClause()
         {
-            var userRoleSet = ServerUtilities.GetGroupInfo(ServerUtilities.GetServerEnvironment());
+            var userRoleSet = GetGroupIDs(ServerUtilities.GetServerEnvironment());
             if (userRoleSet == null)
             {
                 _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".CreateGroupWhereClause()", 200, "No groups found for user.");
                 return "1=0";
             }
             _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".CreateGroupWhereClause()", 200, "User groups: " + String.Join(", ", userRoleSet));
-            if (userRoleSet.Intersect(groupNamesForAllData).Count() > 0)
+            if (userRoleSet.Intersect(groupIdsForAllData).Count() > 0)
             {
                 _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".CreateGroupWhereClause()", 200, "User a member of all inclusive group.");
                 return "1=1";
@@ -99,13 +104,13 @@ namespace RowLevelAccessControlSOI
                 foreach (var group in userRoleSet)
                 {
                     string groupName = group;
-                    if (groupNamePrefix != "" && groupNamePrefix == group.Substring(0, groupNamePrefix.Length)) {
-                        groupName = group.Substring(groupNamePrefix.Length);
-                    }
+                    //if (groupNamePrefix != "" && groupNamePrefix == group.Substring(0, groupNamePrefix.Length)) {
+                    //    groupName = group.Substring(groupNamePrefix.Length);
+                    //}
                     if (group == userRoleSet.First())
-                        outWhere += "(" + groupNameFieldAttr + "='" + groupName + "'";
+                        outWhere += "(" + groupIdFieldAttr + "='" + groupName + "'";
                     else
-                        outWhere += " OR " + groupNameFieldAttr + "='" + groupName + "'";
+                        outWhere += " OR " + groupIdFieldAttr + "='" + groupName + "'";
                 }
                 outWhere += ")";
                 return outWhere;
@@ -131,6 +136,100 @@ namespace RowLevelAccessControlSOI
         {
             string[] resourceNames = layers.Split(':')[1].Split(',');
             return resourceNames;
+        }
+        public static HashSet<string> GetGroupIDs(IServerEnvironment2 serverEnvironment)
+        {
+            HashSet<string> hashSet = new HashSet<string>();
+            if (serverEnvironment == null)
+            {
+                serverEnvironment = ServerUtilities.GetServerEnvironment();
+            }
+
+            IPropertySet properties = serverEnvironment.Properties;
+            properties.GetAllProperties(out var names, out var _);
+            string[] source = names as string[];
+            if (!source.Contains("requestProperties"))
+            {
+                return null;
+            }
+
+            string input = properties.GetProperty("requestProperties") as string;
+            JavaScriptSerializer javaScriptSerializer = new JavaScriptSerializer
+            {
+                MaxJsonLength = int.MaxValue
+            };
+            Dictionary<string, object> dictionary = javaScriptSerializer.Deserialize<Dictionary<string, object>>(input);
+            if (!source.Contains("OwningSystemURL") || !source.Contains("OwningSystemPrivateURL"))
+            {
+                IEnumBSTR roles = serverEnvironment.UserInfo.Roles;
+                if (roles == null)
+                {
+                    return null;
+                }
+
+                roles.Reset();
+                string text = roles.Next();
+                while (text != null && text.Length > 0)
+                {
+                    hashSet.Add(text);
+                    text = roles.Next();
+                }
+            }
+            else
+            {
+                string text2 = properties.GetProperty("OwningSystemPrivateURL") as string;
+                string text3 = serverEnvironment.UserInfo.Name;
+                if (string.IsNullOrEmpty(text3))
+                {
+                    return null;
+                }
+
+                if (text3.Contains("::"))
+                {
+                    text3 = text3.Substring(text3.IndexOf(":") + 2);
+                }
+
+                string requestUriString = text2 + "/sharing/rest/community/users/" + text3;
+                if (!dictionary.ContainsKey("token"))
+                {
+                    return null;
+                }
+
+                string text4 = dictionary["token"] as string;
+                byte[] bytes = Encoding.ASCII.GetBytes("token=" + text4 + "&f=pjson");
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                HttpWebRequest httpWebRequest = (HttpWebRequest)WebRequest.Create(requestUriString);
+                httpWebRequest.Method = "POST";
+                httpWebRequest.ContentType = "application/x-www-form-urlencoded";
+                httpWebRequest.ContentLength = bytes.Length;
+                httpWebRequest.ServerCertificateValidationCallback = (object _003Cp0_003E, X509Certificate _003Cp1_003E, X509Chain _003Cp2_003E, SslPolicyErrors _003Cp3_003E) => true;
+                using (Stream stream = httpWebRequest.GetRequestStream())
+                {
+                    stream.Write(bytes, 0, bytes.Length);
+                }
+
+                HttpWebResponse httpWebResponse = (HttpWebResponse)httpWebRequest.GetResponse();
+                string text5 = new StreamReader(httpWebResponse.GetResponseStream()).ReadToEnd();
+                if (text5.Contains("error"))
+                {
+                    return null;
+                }
+
+                if (!(javaScriptSerializer.Deserialize<Dictionary<string, object>>(text5)["groups"] is ArrayList arrayList))
+                {
+                    return null;
+                }
+
+                foreach (object item in arrayList)
+                {
+                    Dictionary<string, object> dictionary2 = item as Dictionary<string, object>;
+                    hashSet.Add(dictionary2["id"] as string);
+                }
+
+                httpWebResponse.Close();
+            }
+
+            return hashSet;
         }
         #endregion
 
