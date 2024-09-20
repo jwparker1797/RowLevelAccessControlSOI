@@ -40,7 +40,7 @@ namespace RowLevelAccessControlSOI
     [ServerObjectInterceptor("MapServer",
          Description = "Filters records based upon groups of which a user is a member. Currently only implemented on REST services.",
         DisplayName = "Row Level Access Control SOI",
-        Properties = "GroupIdAttributeField=;GroupIdsForAllData=",
+        Properties = "GroupIdAttributeField=;GroupIdsForAllData=;isRestrictedColumn=",
         SupportsSharedInstances = true)]
     public class RowLevelAccessControlSOI : IServerObjectExtension, IRESTRequestHandler, IWebRequestHandler, IRequestHandler2, IRequestHandler, IObjectConstruct
     {
@@ -51,6 +51,7 @@ namespace RowLevelAccessControlSOI
         private string groupIdFieldAttr;
         //private string groupNamePrefix;
         private string[] groupIdsForAllData;
+        private string isRestrictedColumn;
 
         public RowLevelAccessControlSOI()
         {
@@ -75,6 +76,8 @@ namespace RowLevelAccessControlSOI
             _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".Construct()", 200, "GroupIdAttributeField: " + props.GetProperty("GroupIdAttributeField").ToString());
             //_serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".Construct()", 200, "GroupNamePrefix: " + props.GetProperty("GroupNamePrefix").ToString());
             _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".Construct()", 200, "GroupIdsForAllData: " + props.GetProperty("GroupIdsForAllData").ToString());
+            _serverLog.LogMessage(ServerLogger.msgType.debug, _soiName + ".Construct()", 200, "isRestrictedColumn: " + props.GetProperty("isRestrictedColumn").ToString());
+            isRestrictedColumn = props.GetProperty("isRestrictedColumn").ToString();
             groupIdFieldAttr = props.GetProperty("GroupIdAttributeField").ToString();
             //groupNamePrefix = props.GetProperty("GroupNamePrefix").ToString();
             string groupNamesForAllData_str = props.GetProperty("GroupIdsForAllData").ToString();
@@ -113,6 +116,7 @@ namespace RowLevelAccessControlSOI
                         outWhere += " OR " + groupIdFieldAttr + "='" + groupName + "'";
                 }
                 outWhere += ")";
+                outWhere += " AND (" + isRestrictedColumn + " = 0 or " + isRestrictedColumn + " IS NULL)";
                 return outWhere;
             }
             else
